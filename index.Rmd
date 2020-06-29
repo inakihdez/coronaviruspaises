@@ -1,0 +1,261 @@
+---
+title: "Guía actualizar datos coronavirus por países"
+date: "`r Sys.Date()`"
+output: github_document
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE)
+knitr::clean_cache()
+```
+
+
+Esta es una guía para el equipo de EpData para actualizar los datos de las plantillas de coronavirus por países <https://www.epdata.es/datos/coronavirus-casos-confirmados-muertos-cada-pais/527/mexico/184> y la plantilla de Latinoamerica <https://www.epdata.es/datos/coronavirus-latinoamerica-estadisticas-casos-muertes-graficos-datos/532/mexico/184>
+
+Leyendo los datos
+
+```{r lectura, warning=FALSE, message=FALSE,}
+url <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv"
+url2 <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv"
+
+
+```
+
+Ejecutando el código que extrae los datos y les da forma. Ignorad los avisos:
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, cache=FALSE}
+library(reshape2)
+library(plyr)
+library(dplyr)
+library(tidyr)
+
+cvirus <- read.csv(url, header = T, stringsAsFactors = FALSE)
+Muertos <- read.csv(url2, header = T, stringsAsFactors = FALSE)
+
+
+CodigoPaises <- read.csv("https://raw.githubusercontent.com/inakihdez/coronaviruspaises/master/PAISES%20EN%20LA%20BBDD%20-%20Todos%20los%20paises.csv", stringsAsFactors = FALSE, encoding= "UTF-8")
+CodigoPaises <- CodigoPaises[,c(4,7)]
+
+
+cvirus$Lat <- cvirus$Long <- NULL
+cvirus$Province.State <- NULL
+
+cvirus <- melt(cvirus, id.vars = "Country.Region")
+
+colnames(cvirus) <- c("país", "fecha", "casos")
+cvirus$fecha <- as.Date(as.character(cvirus$fecha), format = "X%m.%d.%y")
+
+Total <- cvirus %>% group_by(fecha) %>% summarise (Total = sum(casos))
+
+cvirus2 <- cvirus %>% group_by(país, fecha) %>% summarise(suma =sum(casos))
+
+naciones <- read.csv("https://raw.githubusercontent.com/inakihdez/coronaviruspaises/master/nacionesOK.csv", encoding= "UTF-8")
+
+cvirus2 <- left_join(cvirus2, naciones, by="país")
+
+cvirus2 <- cvirus2[2:4]
+
+cvirus2 <- unique(cvirus2)
+
+cvirus2 <- cvirus2 %>% filter(!is.na(español))
+
+virus3 <- cvirus2 %>% spread(español, suma)
+
+virus4 <- virus3 %>% select(fecha,España, Italia, Brasil, `Estados Unidos`, Rusia, Alemania, Francia, `Reino Unido`)
+virus5 <- virus3 %>% select(-fecha,-España, -Italia, -Brasil, -`Estados Unidos`, -Alemania, -Francia, -`Reino Unido`, -Rusia)
+virus3 <- cbind(virus4, virus5)
+
+
+Muertos$Lat <- Muertos$Long <- NULL
+Muertos$Province.State <- NULL
+
+Muertos <- melt(Muertos, id.vars = "Country.Region")
+
+colnames(Muertos) <- c("país", "fecha", "muertos")
+Muertos$fecha <- as.Date(as.character(Muertos$fecha), format = "X%m.%d.%y")
+
+Muertos <- Muertos %>% group_by(país, fecha) %>% summarise(muertos =sum(muertos))
+
+Muertos <- left_join(Muertos, naciones, by="país")
+
+Muertos <- Muertos[2:4]
+
+Muertos <- unique(Muertos)
+
+Muertos <- Muertos %>% filter(!is.na(español))
+
+Muertos3 <- Muertos %>% filter(muertos >100)
+Muertos3 <- Muertos3 %>% group_by(español) %>% arrange(fecha) %>% mutate(dias= row_number())
+Muertos3 <- Muertos3[,c(2:4)]
+Muertos3 <- Muertos3 %>% spread(español, muertos)
+
+Muertos4 <- Muertos3 %>% select(dias,España, Italia, China, `Estados Unidos`, Alemania, Francia, `Reino Unido`, Brasil)
+Muertos5 <- Muertos3 %>% select(-dias,-España, -Italia, -China, -`Estados Unidos`, -Alemania, -Francia, -`Reino Unido`, -Brasil)
+Muertos3 <- cbind(Muertos4, Muertos5)
+Muertos3[is.na(Muertos3)] <- " "
+
+Muertos$Unir <- paste(Muertos$fecha, Muertos$español)
+
+MuertosUltimo <- Muertos %>% filter(fecha == max(fecha))
+MuertosPenultimo <- Muertos %>% filter(fecha != max(fecha))
+MuertosPenultimo <- MuertosPenultimo %>% filter(fecha == max(fecha))
+MuertosUltimo <- left_join(MuertosUltimo, MuertosPenultimo, by="español")
+MuertosUltimo <- MuertosUltimo[,c(3,1,2,6)]
+colnames(MuertosUltimo) <- c("País", "Fecha", "UltimoDía", "PenultimoDía")
+MuertosUltimo <- MuertosUltimo %>% mutate(Diferencia = UltimoDía - PenultimoDía)
+MuertosUltimo <- arrange(MuertosUltimo, desc(Diferencia)) 
+MuertosUltimo1 <-  MuertosUltimo[1:21,c(1,2,3,5)]
+MuertosUltimo2 <-  MuertosUltimo[1:21,c(1,2,4,5)]
+MuertosUltimo2$Fecha <- MuertosUltimo2$Fecha -1
+colnames(MuertosUltimo1) <- c("País", "Fecha", "Muertos", "Diferencia24H")
+colnames(MuertosUltimo2) <- c("País", "Fecha", "Muertos", "Diferencia24H")
+MuertosUltimo <- rbind.data.frame(MuertosUltimo1, MuertosUltimo2)
+
+cvirus2 <- left_join(cvirus2, CodigoPaises, by=c("español"="Nombre"))
+cvirus2$vacio <- ""
+
+
+
+cvirus2 <- cvirus2[,c(3,4,1,5,2)]
+cvirus2$Unir <- paste(cvirus2$fecha, cvirus2$español)
+
+cvirus2 <- left_join(cvirus2, Muertos, by="Unir")
+cvirus2 <- cvirus2[,c(1:5,8)]
+
+
+Muestra <- c("España", "China", "Italia", "Estados Unidos", "Alemania", "Rusia", "Irán", "Francia", "Corea del Sur", "Suiza", "Reino Unido", "Países Bajos", "Austria", "Bélgica", "Noruega", "Portugal", "Suecia", " Australia", "Brasil", "Canadá", "Malasia", " Dinamarca", " Israel", "Turquía", "Japón", "Ecuador", "Irlanda", "Chile", "Colombia", "Argenina", "Perú", "Mexico", "República Dominicana", "Costa Rica", "Cuba", "Bolivia", "Venezuela", "Argentina", "El Salvador", "Guatemala", "Honduras", "Nicaragua", "Panamá", "República Dominicana", "Uruguay", "India")
+virus4 <- cvirus2 %>% filter(español.x %in% Muestra)
+virus4$fecha.x <- gsub("\\-", "/", virus4$fecha.x)
+
+
+Latam4 <- virus3 %>% select(fecha, Argentina, Bolivia, Brasil, Chile, Colombia, `Costa Rica`, Cuba, Ecuador, `El Salvador`, Guatemala, Honduras, `Mexico`, Nicaragua, `Panamá`, Paraguay, `Perú`, `República Dominicana`, Uruguay, Venezuela)
+PoblacionLatam <- read.csv("https://raw.githubusercontent.com/inakihdez/coronaviruspaises/master/PoblacionLatina.csv")
+Latam5 <- gather(Latam4, "Pais", "Casos", 2:20)
+Latam5 <- left_join(Latam5, PoblacionLatam)
+Latam5$Mil <- (Latam5$Casos/Latam5$Población)*1000
+Latam5 <- Latam5[,c(1,2,5)]
+Latam5OK <- spread(Latam5,Pais, Mil) 
+
+
+
+Muertos <- read.csv(url2, header = T, stringsAsFactors = FALSE)
+Muertos$Lat <- Muertos$Long <- NULL
+Muertos$Province.State <- NULL
+
+Muertos <- melt(Muertos, id.vars = "Country.Region")
+
+colnames(Muertos) <- c("país", "fecha", "muertos")
+Muertos$fecha <- as.Date(as.character(Muertos$fecha), format = "X%m.%d.%y")
+
+Muertos <- Muertos %>% group_by(país, fecha) %>% summarise(muertos =sum(muertos))
+Muertos <- left_join(Muertos, naciones, by="país")
+
+Muertos <- Muertos[2:4]
+
+Muertos <- unique(Muertos)
+
+Muertos <- Muertos %>% filter(!is.na(español))
+LatamM3 <- Muertos %>% filter(español %in% c("Argentina", "Bolivia", "Brasil", "Chile", "Colombia", "Costa Rica", "Cuba", "Ecuador", "El Salvador", "Guatemala", "Honduras", "Mexico", "Nicaragua", "Panamá", "Paraguay", "Perú", "República Dominicana", "Uruguay", "Venezuela"))
+
+LatamM3 <- LatamM3 %>% filter(muertos >50)
+LatamM3 <- LatamM3 %>% group_by(español) %>% arrange(fecha) %>% mutate(dias= row_number())
+LatamM3 <- LatamM3[,c(2:4)]
+LatamM3 <- LatamM3 %>% spread(español, muertos)
+LatamM3[is.na(LatamM3)] <- " "
+
+
+
+
+```
+
+## Descargar los .csv para actualizar gráficos 
+
+Descarga el archivo para actualizar la base de datos. Son dos unidades de la operación enfermedades / coronavirus: la primera unidad es 'casos clínicos' y la segunda 'personas fallecidos':
+
+```{r echo= FALSE, warning=FALSE, message=FALSE}
+write.csv(virus4, "./file.csv", fileEncoding = "UTF-8")
+
+library(magrittr)
+readLines("./file.csv") %>% 
+     paste0(collapse="\n") %>% 
+     openssl::base64_encode() -> encoded
+```
+
+
+<a download="basededatos.csv" href="`r sprintf('data:text/csv;base64,%s', encoded)`">Descarga datos para edit.epdata</a>
+
+## Actualizar los gráficos en Flourish, en la cuenta de Yon: 
+
+
+Descarga el archivo para actualizar gráfico de muertes  <https://public.flourish.studio/visualisation/1698673/>:
+
+```{r echo= FALSE}
+write.csv(Muertos3, "./file.csv", fileEncoding = "UTF-8")
+
+library(magrittr)
+readLines("./file.csv") %>% 
+     paste0(collapse="\n") %>% 
+     openssl::base64_encode() -> encoded
+```
+
+
+<a download="muertos.csv" href="`r sprintf('data:text/csv;base64,%s', encoded)`">Descarga datos gráfico muertes</a>
+
+Descarga el archivo para actualizar gráfico de curvas de casos  <https://app.flourish.studio/visualisation/1626540/edit>:
+
+```{r echo= FALSE}
+write.csv(virus3, "./file.csv", fileEncoding = "UTF-8")
+
+library(magrittr)
+readLines("./file.csv") %>% 
+     paste0(collapse="\n") %>% 
+     openssl::base64_encode() -> encoded
+```
+
+
+<a download="casos.csv" href="`r sprintf('data:text/csv;base64,%s', encoded)`">Descarga datos gráfico casos</a>
+
+Descarga el archivo para actualizar gráfico de fallecidos último día  <https://app.flourish.studio/visualisation/1686737/edit>:
+
+```{r echo= FALSE}
+write.csv(MuertosUltimo, "./file.csv", fileEncoding = "UTF-8")
+
+library(magrittr)
+readLines("./file.csv") %>% 
+     paste0(collapse="\n") %>% 
+     openssl::base64_encode() -> encoded
+```
+
+
+<a download="ultimodia.csv" href="`r sprintf('data:text/csv;base64,%s', encoded)`">Descarga datos gráfico muertos ultimo día</a>
+
+Descarga el archivo para actualizar gráfico de casos Latinoamerica  <https://app.flourish.studio/visualisation/2154216/edit>:
+
+```{r echo= FALSE}
+write.csv(Latam5OK, "./file.csv", fileEncoding = "UTF-8")
+
+library(magrittr)
+readLines("./file.csv") %>% 
+     paste0(collapse="\n") %>% 
+     openssl::base64_encode() -> encoded
+```
+
+
+<a download="cLatinoamerica.csv" href="`r sprintf('data:text/csv;base64,%s', encoded)`">Descarga datos gráfico casos Latinoamerica</a>
+
+Descarga el archivo para actualizar gráfico de muertos Latinoamerica  <https://app.flourish.studio/visualisation/2157834/edit>:
+
+```{r echo= FALSE}
+write.csv(LatamM3, "./file.csv", fileEncoding = "UTF-8")
+
+library(magrittr)
+readLines("./file.csv") %>% 
+     paste0(collapse="\n") %>% 
+     openssl::base64_encode() -> encoded
+```
+
+
+<a download="mLatinoamerica.csv" href="`r sprintf('data:text/csv;base64,%s', encoded)`">Descarga datos gráfico muertos Latinoamerica</a>
+
+Actualizar todos los gráficos de Flourish, pasar la plantilla que está en el buzón a los compañeros de Internacional y dar por Twitter el gráfico de ranking de países con más muertos reportados en las últimas 24 horas.
